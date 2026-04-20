@@ -109,6 +109,10 @@ function bindAll() {
   q('#btnClear').addEventListener('click', clearAll);
   q('#btnReclassifyAll').addEventListener('click', reclassifyAll);
   q('#btnExportRow').addEventListener('click', exportCSV);
+  q('#btnFetchSheetRow').addEventListener('click', fetchFromSheet);
+  q('#btnBackupExportRow').addEventListener('click', exportBackup);
+  q('#btnBackupImportRow').addEventListener('click', () => q('#backupFileInput').click());
+  q('#backupFileInput').addEventListener('change', handleBackupFileSelect);
   q('#btnClearRow').addEventListener('click', clearAll);
   document.querySelectorAll('[data-clear-store]').forEach(btn => {
     btn.addEventListener('click', () => clearStore(btn.dataset.clearStore));
@@ -1348,6 +1352,134 @@ function exportCSV() {
     download: `구매내역_${new Date().toISOString().slice(0, 10)}.csv`
   }).click();
   toast(`✓ ${f.length}건 CSV 다운로드`);
+}
+
+// ── 시트에서 불러오기 ─────────────────────────────────────────────────────────
+async function fetchFromSheet() {
+  if (!settings.webhookUrl) {
+    toast('⚠️ Apps Script URL을 먼저 설정해주세요');
+    q('#settingsPanel').scrollIntoView({ behavior: 'smooth' });
+    return;
+  }
+  if (!confirm('구글 시트에서 구매내역을 불러와 현재 목록에 합칠까요?\n(중복은 자동으로 제외됩니다)')) return;
+  try {
+    const r = await chrome.runtime.sendMessage({
+      action: 'fetchFromSheet',
+      webhookUrl: settings.webhookUrl,
+      sheetName: settings.sheetName || '구매내역'
+    });
+    if (!r || !r.ok) { toast('❌ ' + ((r && r.error) || '불러오기 실패')); return; }
+    const fetched = r.items || [];
+    if (!fetched.length) { toast('시트에 데이터가 없어요'); return; }
+    const mergeRes = await chrome.runtime.sendMessage({ action: 'mergeItems', items: fetched });
+    if (!mergeRes || !mergeRes.ok) { toast('❌ 병합 실패'); return; }
+    // 로컬 items 재로드
+    const s = await chrome.storage.local.get('items');
+    items = s.items || [];
+    reclassify();
+    render();
+    toast(`✓ ${mergeRes.added}건 추가 (중복 ${mergeRes.duplicates}건 제외)`);
+  } catch (e) {
+    toast('❌ ' + e.message);
+  }
+}
+
+// ── JSON 백업 / 복원 ──────────────────────────────────────────────────────────
+function exportBackup() {
+  const backup = {
+    app: 'CartLog',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    items: items,
+    settings: {
+      rules: settings.rules || [],
+      customCategories: settings.customCategories || [],
+      rateCache: settings.rateCache || {}
+    }
+  };
+  const json = JSON.stringify(backup, null, 2);
+  Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(new Blob([json], { type: 'application/json' })),
+    download: `cartlog-backup_${new Date().toISOString().slice(0, 10)}.json`
+  }).click();
+  toast(`✓ 백업 내보내기 완료 (${items.length}건)`);
+}
+
+function handleBackupFileSelect(e) {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = ''; // 동일 파일 재선택 허용
+  if (!file) return;
+  const includeCategorySettings = confirm(
+    '📥 백업 불러오기\n\n' +
+    '✔ 구매내역은 기본으로 가져옵니다.\n\n' +
+    '카테고리 규칙·커스텀 카테고리·환율 캐시도 함께 가져올까요?\n' +
+    '(webhookUrl·자동동기화 설정은 PC별로 유지됩니다)\n\n' +
+    '확인 = 모두 가져오기\n취소 = 구매내역만 가져오기'
+  );
+  importBackup(file, { includeItems: true, includeCategorySettings });
+}
+
+async function importBackup(file, opts) {
+  try {
+    const text = await file.text();
+    const backup = JSON.parse(text);
+    if (!backup || !Array.isArray(backup.items)) {
+      toast('❌ 백업 파일 형식이 올바르지 않아요');
+      return;
+    }
+
+    let addedCount = 0, dupCount = 0;
+    if (opts.includeItems && backup.items.length) {
+      const mergeRes = await chrome.runtime.sendMessage({ action: 'mergeItems', items: backup.items });
+      if (!mergeRes || !mergeRes.ok) { toast('❌ 병합 실패'); return; }
+      addedCount = mergeRes.added;
+      dupCount = mergeRes.duplicates;
+    }
+
+    const settingsMsgs = [];
+    if (opts.includeCategorySettings && backup.settings && typeof backup.settings === 'object') {
+      const bs = backup.settings;
+      if (Array.isArray(bs.rules)) {
+        const existingKw = new Set((settings.rules || []).map(r => (r.keyword || '').toLowerCase()));
+        const newRules = bs.rules.filter(r => r && r.keyword && !existingKw.has(r.keyword.toLowerCase()));
+        if (newRules.length) {
+          settings.rules = [...(settings.rules || []), ...newRules];
+          settingsMsgs.push(`규칙 +${newRules.length}`);
+        }
+      }
+      if (Array.isArray(bs.customCategories)) {
+        const existing = new Set(settings.customCategories || []);
+        const newCats = bs.customCategories.filter(c => c && !existing.has(c));
+        if (newCats.length) {
+          settings.customCategories = [...(settings.customCategories || []), ...newCats];
+          settingsMsgs.push(`카테고리 +${newCats.length}`);
+        }
+      }
+      if (bs.rateCache && typeof bs.rateCache === 'object') {
+        const before = Object.keys(settings.rateCache || {}).length;
+        settings.rateCache = Object.assign({}, settings.rateCache || {}, bs.rateCache);
+        const after = Object.keys(settings.rateCache).length;
+        if (after > before) settingsMsgs.push(`환율캐시 +${after - before}`);
+      }
+      save();
+    }
+
+    // items 재로드
+    const s = await chrome.storage.local.get('items');
+    items = s.items || [];
+    reclassify();
+    syncCustomCategories();
+    renderRules();
+    renderCustomCatChips();
+    render();
+
+    const parts = [];
+    if (opts.includeItems) parts.push(`내역 +${addedCount} (중복 ${dupCount})`);
+    if (settingsMsgs.length) parts.push(settingsMsgs.join(', '));
+    toast(`✓ 복원 완료: ${parts.join(' / ') || '변경 없음'}`);
+  } catch (e) {
+    toast('❌ 백업 불러오기 실패: ' + e.message);
+  }
 }
 
 function clearAll() {

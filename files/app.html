@@ -476,6 +476,19 @@ header{display:flex;align-items:center;justify-content:space-between}
               <span class="toggle-label">CSV 내보내기</span>
               <span style="color:var(--fg3);font-size:11px">↓</span>
             </div>
+            <div class="data-row" id="btnFetchSheetRow" style="margin-top:3px">
+              <span class="toggle-label">⬇ 시트에서 불러오기</span>
+              <span style="color:var(--fg3);font-size:11px">↓</span>
+            </div>
+            <div class="data-row" id="btnBackupExportRow" style="margin-top:3px">
+              <span class="toggle-label">📦 백업 내보내기 (JSON)</span>
+              <span style="color:var(--fg3);font-size:11px">↓</span>
+            </div>
+            <div class="data-row" id="btnBackupImportRow" style="margin-top:3px">
+              <span class="toggle-label">📥 백업 불러오기 (JSON)</span>
+              <span style="color:var(--fg3);font-size:11px">↑</span>
+            </div>
+            <input type="file" id="backupFileInput" accept="application/json,.json" style="display:none">
             <div class="data-row" id="btnClearRow" style="margin-top:3px">
               <span class="toggle-label" style="color:var(--err)">모든 데이터 삭제</span>
               <span style="color:var(--fg3);font-size:11px">×</span>

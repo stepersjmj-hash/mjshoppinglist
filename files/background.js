@@ -23,7 +23,49 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch(e => sendResponse({ ok: false, error: e.message }));
     return true;
   }
+  if (msg.action === 'fetchFromSheet') {
+    fetchFromSheet(msg.webhookUrl, msg.sheetName)
+      .then(r => sendResponse(r))
+      .catch(e => sendResponse({ ok: false, error: e.message }));
+    return true;
+  }
+  if (msg.action === 'mergeItems') {
+    mergeItems(msg.items || [])
+      .then(r => sendResponse(r))
+      .catch(e => sendResponse({ ok: false, error: e.message }));
+    return true;
+  }
 });
+
+// 기존 items와 새 items 병합 (중복 제거). 시트 불러오기·백업 복원에서 사용.
+async function mergeItems(incoming) {
+  const { items = [] } = await chrome.storage.local.get('items');
+  const keys = new Set(items.map(i => i.orderId + '|' + i.name + '|' + i.price));
+  const naverKeys = new Set(
+    items.filter(i => i.store === 'naver').map(i => `${i.name}|${i.price}|${i.date}`)
+  );
+  const added = incoming.filter(i => {
+    if (!i) return false;
+    if (keys.has(i.orderId + '|' + i.name + '|' + i.price)) return false;
+    if (i.store === 'naver' && naverKeys.has(`${i.name}|${i.price}|${i.date}`)) return false;
+    return true;
+  });
+  if (!added.length) return { ok: true, added: 0, duplicates: incoming.length };
+  const merged = [...added, ...items];
+  await chrome.storage.local.set({ items: merged });
+  return { ok: true, added: added.length, duplicates: incoming.length - added.length };
+}
+
+async function fetchFromSheet(webhookUrl, sheetName = '구매내역') {
+  if (!webhookUrl) return { ok: false, error: 'URL 미설정' };
+  const sep = webhookUrl.includes('?') ? '&' : '?';
+  const url = `${webhookUrl}${sep}action=fetch&sheetName=${encodeURIComponent(sheetName)}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || 'fetch failed');
+  return { ok: true, items: Array.isArray(data.items) ? data.items : [] };
+}
 
 async function handleCollected(newItems) {
   const { items = [] } = await chrome.storage.local.get('items');
