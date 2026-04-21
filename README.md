@@ -2,6 +2,16 @@
 
 쿠팡, 네이버페이(네이버쇼핑 포함), 11번가, 알리익스프레스 구매 내역을 자동으로 수집하고 한 곳에서 관리하는 크롬 확장프로그램입니다.
 
+## 주요 기능
+
+- 쿠팡 / 네이버페이 / 11번가 / 알리익스프레스 주문 내역 자동 수집
+- 목록(정렬·검색·필터) / 그래프(카테고리 도넛 차트)
+- 카테고리 자동 분류 · 수동 편집 · 전체 재분류
+- 알리익스프레스 **USD → KRW 환율 자동 변환** (Frankfurter API)
+- **구글 시트 양방향 연동** — 업로드 + 시트에서 되가져오기 (v3.0.0)
+- **JSON 백업 / 복원** — 내역·규칙·카테고리·환율 캐시 (v3.0.0)
+- CSV 내보내기 / 개인화 태그
+
 ---
 
 ## 설치 방법
@@ -239,10 +249,56 @@ function doPost(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 }
+
+// 시트 → 확장프로그램으로 되가져오기 (양방향 연동)
+function doGet(e) {
+  try {
+    const sheetName = (e.parameter && e.parameter.sheetName) || '구매내역';
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(sheetName);
+    if (!sheet || sheet.getLastRow() < 2) {
+      return ContentService
+        .createTextOutput(JSON.stringify({ ok: true, items: [] }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    const header = ['날짜','상품명','가격(원)','카테고리','개인화태그','쇼핑몰','주문번호'];
+    const range = sheet.getRange(2, 1, sheet.getLastRow() - 1, header.length);
+    const values = range.getValues();
+    const formulas = range.getFormulas(); // HYPERLINK 셀에서 URL·이름 복구
+
+    const hyperRe = /^=HYPERLINK\("([^"]+)",\s*"(.*)"\)$/;
+    const items = values.map((row, i) => {
+      let name = row[1];
+      let url = '';
+      const f = formulas[i][1];
+      const m = f && f.match(hyperRe);
+      if (m) { url = m[1]; name = m[2].replace(/""/g, '"'); }
+      return {
+        date: String(row[0] || ''),
+        name: name || '',
+        price: Number(row[2]) || 0,
+        category: row[3] || '',
+        tags: row[4] ? String(row[4]).split(',').map(s => s.trim()).filter(Boolean) : [],
+        store: row[5] || '',
+        orderId: String(row[6] || ''),
+        url: url
+      };
+    });
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: true, items: items }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: false, error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
 ```
 
 
 3. **저장** (Ctrl+S 또는 ⌘S)
+
+> **기존 사용자 안내** — 이미 구글 시트 연동을 쓰고 계신 경우, 위 스크립트의 `doGet` 함수 부분을 추가한 뒤 Apps Script 편집기에서 **배포 → 배포 관리 → ✏ 수정 → 버전: 새 버전 → 배포** 순서로 재배포하면 기존 웹 앱 URL이 그대로 유지됩니다. (새 배포를 누르면 URL이 바뀌어 확장프로그램에 다시 등록해야 합니다.)
 
 ---
 
@@ -284,8 +340,55 @@ function doPost(e) {
 
 ---
 
+### ⬇ 시트에서 불러오기 (양방향 연동, v3.0.0+)
+
+다른 PC에서 쌓은 기록이나 시트에서만 추가한 내역을 **확장프로그램으로 되가져오는** 기능입니다.
+
+1. 설정 패널 → **⬇ 시트에서 불러오기** 클릭
+2. 확인 팝업에서 승인 → 시트의 전체 행을 읽어와 현재 목록과 자동 병합
+3. 완료 후 토스트에 `✓ N건 추가 (중복 M건 제외)` 표시
+
+- 중복 판단 기준: `주문번호 | 상품명 | 가격` (네이버페이는 `상품명 | 가격 | 날짜` 추가 비교)
+- Apps Script의 **`doGet` 함수가 반드시 포함**되어 있어야 동작합니다. 2단계 스크립트를 최신 버전으로 덮어쓰고 재배포해주세요.
+- 시트에는 원화 가격만 저장되므로, 불러온 알리 항목은 **원달러 원가가 복원되지 않고 원화 금액으로만 표시**됩니다 (셀 노트의 `US $xx.xx` 정보는 복원 대상이 아닙니다).
+
+---
+
+## 백업 / 복원 (JSON, v3.0.0+)
+
+구글 시트 연동 없이도 전체 데이터를 파일로 백업/이관할 수 있습니다.
+
+### 📦 백업 내보내기
+
+설정 패널 → **📦 백업 내보내기 (JSON)** 클릭 → `cartlog-backup_YYYY-MM-DD.json` 다운로드
+
+백업 파일에 포함되는 항목:
+- 구매 내역 전체 (`items`)
+- 카테고리 분류 규칙 (`rules`)
+- 커스텀 카테고리 (`customCategories`)
+- 환율 캐시 (`rateCache`)
+
+> **PC별로 유지되는 값**(백업에 포함되지 않음): Apps Script 웹 앱 URL, 시트 이름, 자동 동기화 토글, 다크/라이트 테마.
+
+### 📥 백업 불러오기
+
+설정 패널 → **📥 백업 불러오기 (JSON)** 클릭 → 백업 파일 선택
+
+선택 시 팝업이 뜨며 두 가지 옵션을 고를 수 있습니다.
+
+| 선택 | 가져오는 항목 |
+|------|---------------|
+| **확인 — 모두 가져오기** | 구매내역 + 규칙 + 커스텀 카테고리 + 환율 캐시 |
+| **취소 — 구매내역만** | 구매내역만 (기존 규칙·카테고리 설정 유지) |
+
+- 구매 내역은 중복 제거 후 병합됩니다 (기존 항목은 그대로 유지).
+- 규칙·커스텀 카테고리는 이미 존재하는 키워드/이름은 건너뛰고 새로운 항목만 추가합니다.
+- 환율 캐시는 기존 캐시에 날짜별로 병합됩니다.
+
+---
+
 ## 주의사항
 
 - 개발자 모드로 설치한 확장프로그램은 크롬 업데이트 후 간헐적으로 비활성화될 수 있습니다. 비활성화 시 `chrome://extensions/`에서 다시 활성화하세요.
 - 수집된 데이터는 브라우저 로컬 스토리지에 저장됩니다. **초기화** 버튼 클릭 시 전체 삭제되므로 주의하세요.
-- 구글 시트 연동 없이도 CSV로 데이터를 보관할 수 있습니다.
+- 구글 시트 연동 없이도 CSV 또는 JSON 백업으로 데이터를 보관할 수 있습니다.

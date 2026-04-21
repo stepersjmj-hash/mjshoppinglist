@@ -639,6 +639,50 @@ header{display:flex;align-items:center;justify-content:space-between}
       .createTextOutput(JSON.stringify({ success: false, error: err.message }))
       .setMimeType(ContentService.MimeType.JSON);
   }
+}
+
+// 시트 → 확장프로그램으로 되가져오기 (양방향 연동)
+function doGet(e) {
+  try {
+    const sheetName = (e.parameter && e.parameter.sheetName) || '구매내역';
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(sheetName);
+    if (!sheet || sheet.getLastRow() < 2) {
+      return ContentService
+        .createTextOutput(JSON.stringify({ ok: true, items: [] }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    const header = ['날짜','상품명','가격(원)','카테고리','개인화태그','쇼핑몰','주문번호'];
+    const range = sheet.getRange(2, 1, sheet.getLastRow() - 1, header.length);
+    const values = range.getValues();
+    const formulas = range.getFormulas(); // HYPERLINK 셀에서 URL·이름 복구
+
+    const hyperRe = /^=HYPERLINK\("([^"]+)",\s*"(.*)"\)$/;
+    const items = values.map((row, i) => {
+      let name = row[1];
+      let url = '';
+      const f = formulas[i][1];
+      const m = f && f.match(hyperRe);
+      if (m) { url = m[1]; name = m[2].replace(/""/g, '"'); }
+      return {
+        date: String(row[0] || ''),
+        name: name || '',
+        price: Number(row[2]) || 0,
+        category: row[3] || '',
+        tags: row[4] ? String(row[4]).split(',').map(s => s.trim()).filter(Boolean) : [],
+        store: row[5] || '',
+        orderId: String(row[6] || ''),
+        url: url
+      };
+    });
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: true, items: items }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: false, error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
 }</pre>
             <button class="gcopy" id="btnCopyScript">복사</button>
           </div>
