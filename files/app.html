@@ -11,7 +11,7 @@
   --fg:#1a1a2e;--fg2:#44445a;--fg3:#8888a4;
   --a:#6c5ce7;--a2:#5a4bd1;--a3:rgba(108,92,231,0.10);
   --ok:#059669;--err:#dc2626;
-  --cp:#346aff;--nv:#29cf73;--st:#ff0038;--ali:#ff640e;
+  --cp:#346aff;--nv:#29cf73;--st:#ff0038;--ali:#ff640e;--kly:#5f0080;
 }
 @media(prefers-color-scheme:dark){
   :root{
@@ -20,7 +20,7 @@
     --fg:#e2e2ec;--fg2:#a0a0b4;--fg3:#606074;
     --a:#7c6fef;--a2:#a89df5;--a3:rgba(124,111,239,0.12);
     --ok:#34d399;--err:#f87171;
-    --cp:#346aff;--nv:#29cf73;--st:#ff0038;--ali:#ff640e;
+    --cp:#346aff;--nv:#29cf73;--st:#ff0038;--ali:#ff640e;--kly:#b066d6;
   }
   .loader{border-color:rgba(0,0,0,.15);border-top-color:var(--a)}
   .guide-overlay{background:rgba(0,0,0,.5)}
@@ -70,6 +70,7 @@ header{display:flex;align-items:center;justify-content:space-between}
 .chip[data-val="naver"].on{background:var(--nv);border-color:var(--nv)}
 .chip[data-val="11st"].on{background:var(--st);border-color:var(--st)}
 .chip[data-val="aliexpress"].on{background:var(--ali);border-color:var(--ali)}
+.chip[data-val="kurly"].on{background:var(--kly);border-color:var(--kly)}
 .f-input{background:var(--bg4);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:11px;padding:4px 8px}
 .f-input:focus{outline:none;border-color:var(--a)}
 .f-input::placeholder{color:var(--fg3)}
@@ -88,6 +89,7 @@ header{display:flex;align-items:center;justify-content:space-between}
 .badge.naver{background:color-mix(in srgb,var(--nv) 15%,transparent);color:var(--nv)}
 .badge\.11st,.badge[class*="11st"]{background:color-mix(in srgb,var(--st) 15%,transparent);color:var(--st)}
 .badge.aliexpress{background:color-mix(in srgb,var(--ali) 15%,transparent);color:var(--ali)}
+.badge.kurly{background:color-mix(in srgb,var(--kly) 15%,transparent);color:var(--kly)}
 .item-info{flex:1;min-width:0}
 .item-name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .item-meta{display:flex;align-items:center;gap:6px;margin-top:3px}
@@ -297,6 +299,7 @@ header{display:flex;align-items:center;justify-content:space-between}
             <div class="chip" data-filter="store" data-val="naver">네이버페이</div>
             <div class="chip" data-filter="store" data-val="11st">11번가</div>
             <div class="chip" data-filter="store" data-val="aliexpress">알리</div>
+            <div class="chip" data-filter="store" data-val="kurly">컬리</div>
           </div>
         </div>
         <div class="filter-row">
@@ -428,6 +431,12 @@ header{display:flex;align-items:center;justify-content:space-between}
               <div class="site-info"><div class="site-name">알리익스프레스</div><div class="site-sub">My Orders > 주문내역</div></div>
               <div class="site-cnt" id="cnt-aliexpress">0건</div>
               <button class="site-clear" data-clear-store="aliexpress" title="알리 데이터 삭제">×</button>
+            </div>
+            <div class="site-row">
+              <div class="dot-sm" style="background:var(--kly)"></div>
+              <div class="site-info"><div class="site-name">컬리</div><div class="site-sub">마이컬리 > 주문내역</div></div>
+              <div class="site-cnt" id="cnt-kurly">0건</div>
+              <button class="site-clear" data-clear-store="kurly" title="컬리 데이터 삭제">×</button>
             </div>
           </div>
           <div class="guide">

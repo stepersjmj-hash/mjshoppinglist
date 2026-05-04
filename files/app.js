@@ -39,7 +39,8 @@ const SHOP_PATTERNS = [
   'mc.coupang.com', 'coupang.com/np/orders',
   'orders.pay.naver.com', 'shopping.naver.com/my/order', 'pay.naver.com',
   'aliexpress.com/p/order',
-  '11st.co.kr', 'coupang.com', 'naver.com', 'aliexpress.com'
+  'kurly.com/mypage/order',
+  '11st.co.kr', 'coupang.com', 'naver.com', 'aliexpress.com', 'kurly.com'
 ];
 
 async function findShopTab() {
@@ -303,12 +304,14 @@ async function collectAuto() {
   const isNaver = tab.url.includes('naver.com');
   const isCoupang = tab.url.includes('coupang.com');
   const isAliexpress = tab.url.includes('aliexpress.com');
-  if (!is11st && !isNaver && !isCoupang && !isAliexpress) { toast('⚠️ 현재 전체 자동 수집은 11번가/네이버페이/쿠팡/알리익스프레스만 지원해요'); return; }
-  const store = is11st ? '11st' : isNaver ? 'naver' : isCoupang ? 'coupang' : 'aliexpress';
+  const isKurly = tab.url.includes('kurly.com');
+  if (!is11st && !isNaver && !isCoupang && !isAliexpress && !isKurly) { toast('⚠️ 현재 전체 자동 수집은 11번가/네이버페이/쿠팡/알리익스프레스/컬리만 지원해요'); return; }
+  const store = is11st ? '11st' : isNaver ? 'naver' : isCoupang ? 'coupang' : isAliexpress ? 'aliexpress' : 'kurly';
   const btn = q('#btnCollectAuto');
   btn.disabled = true;
   try {
     if (store === 'aliexpress') await collectAllPagesAli(tab);
+    else if (store === 'kurly') await collectAllKurly(tab);
     else if (tab.url.includes('orders.pay.naver.com')) await collectAllYears(tab, 'naver');
     else if (tab.url.includes('pay.naver.com')) await collectNaverPayAll(tab);
     else await collectAllYears(tab, store);
@@ -515,6 +518,150 @@ async function collectNaverPayAll(tab) {
   render();
 }
 
+async function collectAllKurly(tab) {
+  const btn = q('#btnCollectAuto');
+  showProgress('컬리 수집 시작...', 0, '');
+
+  // 1. 주문 페이지로 이동 (이미 그 위치라면 갱신)
+  if (!tab.url.includes('kurly.com/mypage/order')) {
+    await chrome.tabs.update(tab.id, { url: 'https://www.kurly.com/mypage/order' });
+    await waitForTabLoad(tab.id);
+    await new Promise(r => setTimeout(r, 1500));
+  } else {
+    await new Promise(r => setTimeout(r, 800));
+  }
+
+  // 2. 기간 선택 → 3년
+  showProgress('기간 선택 중...', 5, '필터 버튼 클릭');
+  await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: () => {
+      // 1차: .css-1nsqg64 > button / 폴백: .css-ene5xr / 텍스트 매칭
+      const btn = document.querySelector('.css-1nsqg64 button')
+        || document.querySelector('.css-1nsqg64')
+        || document.querySelector('.css-ene5xr button')
+        || document.querySelector('.css-ene5xr')
+        || [...document.querySelectorAll('button')].find(b => /기간|선택|조회|3개월|1개월/.test(b.textContent));
+      if (btn) btn.click();
+    }
+  });
+
+  // 필터 레이어(.css-1uqecto)가 나타날 때까지 polling
+  showProgress('기간 선택 중...', 7, '필터 레이어 대기');
+  let layerReady = false;
+  for (let i = 0; i < 20; i++) {
+    await new Promise(r => setTimeout(r, 200));
+    const [{ result: ready }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const layer = document.querySelector('.css-1uqecto');
+        if (layer && layer.offsetParent !== null) return true;
+        // 폴백: "3년" 단독 텍스트 element가 보이면 레이어 열린 것으로 간주
+        return [...document.querySelectorAll('button,li,div,a,span,label')]
+          .some(el => el.textContent.trim() === '3년' && el.offsetParent !== null);
+      }
+    });
+    if (ready) { layerReady = true; break; }
+  }
+
+  // 3년 옵션 클릭 — 레이어 범위로 좁힌 후 여러 폴백
+  showProgress('기간 선택 중...', 9, layerReady ? '3년 옵션 선택' : '레이어 미발견 (폴백)');
+  await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: () => {
+      const layer = document.querySelector('.css-1uqecto') || document;
+
+      // input/label 케이스 처리 헬퍼
+      const safeClick = (el) => {
+        if (!el) return false;
+        // <input type="radio|checkbox">이면 연결된 label 우선
+        if (el.tagName === 'INPUT') {
+          const label = el.id ? document.querySelector(`label[for="${el.id}"]`) : el.closest('label');
+          if (label) { label.click(); return true; }
+          el.click(); return true;
+        }
+        // <label>이면 그냥 클릭 (input toggle)
+        el.click();
+        return true;
+      };
+
+      // 1차: 레이어 내 .css-1tkkqko 중 텍스트가 "3년"인 것
+      let opt = [...layer.querySelectorAll('.css-1tkkqko')]
+        .find(el => /3년/.test(el.textContent) && el.offsetParent !== null);
+
+      // 폴백 1: 레이어 내 단독 "3년" 텍스트 element (label 포함)
+      if (!opt) {
+        opt = [...layer.querySelectorAll('label,button,li,div,a,span')]
+          .find(el => el.textContent.trim() === '3년' && el.offsetParent !== null);
+      }
+
+      // 폴백 2: 레이어 내 textContent에 "3년" 포함 + 다른 기간 텍스트 없는 가장 작은 노드
+      if (!opt) {
+        const cands = [...layer.querySelectorAll('label,button,li,div,a,span')]
+          .filter(el => {
+            const t = (el.textContent || '').trim();
+            if (!/3년/.test(t)) return false;
+            // 다른 기간 옵션 텍스트가 같이 있으면 너무 큰 컨테이너
+            if (/(\d+개월|6개월|1년|전체|기간\s*선택)/.test(t)) return false;
+            return el.offsetParent !== null;
+          });
+        // 가장 텍스트가 짧은 노드 선택 (가장 안쪽 / 단일 옵션일 가능성)
+        cands.sort((a, b) => a.textContent.length - b.textContent.length);
+        opt = cands[0];
+      }
+
+      if (opt) safeClick(opt);
+    }
+  });
+  await new Promise(r => setTimeout(r, 1500));
+
+  // 3. 무한 스크롤 — 카드 수가 N회 연속 동일하면 종료
+  let lastCount = 0, stable = 0, scrollCount = 0;
+  while (true) {
+    const [{ result: count }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        // 1차: 주문 박스 / 폴백: goods 링크 수
+        const boxes = document.querySelectorAll('.css-w90b0q').length;
+        if (boxes > 0) return boxes;
+        return document.querySelectorAll('a[href*="/goods/"]').length;
+      }
+    });
+
+    if (count === lastCount) {
+      stable++;
+      if (stable >= 3) break;
+    } else {
+      stable = 0;
+      lastCount = count;
+    }
+
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => window.scrollTo(0, document.body.scrollHeight)
+    });
+
+    scrollCount++;
+    showProgress(`스크롤 ${scrollCount}회`, Math.min(20 + scrollCount * 2, 90), `${count}개 로드됨`);
+    btn.textContent = `⏳ 스크롤 ${scrollCount}회 (${count}건)`;
+
+    await new Promise(r => setTimeout(r, 1200));
+    if (scrollCount > 200) break;
+  }
+
+  // 4. 펼치기 + 수집기 주입
+  showProgress('수집 중...', 95, '주문 펼치는 중');
+  await new Promise(r => setTimeout(r, 300));
+  const totalCount = await injectCollector(tab.id, false);
+
+  settings.lastCollectedAt = new Date().toISOString();
+  save();
+  showProgress('수집 완료!', 100, `총 ${totalCount}건`);
+  setTimeout(hideProgress, 3000);
+  toast(`✓ 컬리 수집 완료 — 총 ${totalCount}건`);
+  render();
+}
+
 // ── 수집기 주입 ───────────────────────────────────────────────────────────────
 async function injectCollector(tabId, allPages) {
   await chrome.scripting.executeScript({ target: { tabId }, func: () => { window.__collectResult = null; window.__shopCollecting = false; } });
@@ -701,6 +848,7 @@ function runCollector(allPages) {
       else if (url.includes('shopping.naver.com')) collected = await collectNaver();
       else if (url.includes('naver.com')) collected = await collectNaver();
       else if (url.includes('aliexpress.com')) collected = await collectAliexpress();
+      else if (url.includes('kurly.com')) collected = await collectKurly();
     } catch (e) { console.error('[collect error]', e.message); }
 
     window.__shopCollecting = false;
@@ -1111,6 +1259,193 @@ function runCollector(allPages) {
     return result;
   }
 
+  // ── 컬리 ──────────────────────────────────────────────────────────────────
+  async function collectKurly() {
+    await new Promise(r => setTimeout(r, 300));
+
+    // 1. "주문내역 펼쳐보기" 모두 클릭 — 1차: .css-14cws30 / 폴백: 텍스트 매칭
+    let expandBtns = [...document.querySelectorAll('.css-14cws30')];
+    if (expandBtns.length === 0) {
+      expandBtns = [...document.querySelectorAll('button,div[role="button"],a')]
+        .filter(b => /펼치|펼쳐|주문내역.*보기|상세\s*보기/.test(b.textContent));
+    }
+    expandBtns.forEach(b => { try { b.click(); } catch {} });
+    if (expandBtns.length > 0) await new Promise(r => setTimeout(r, 700));
+
+    const result = [];
+
+    // 2. 주문 박스 — 1차: .css-w90b0q / 폴백: "주문번호" + goods 링크
+    let orderBoxes = [...document.querySelectorAll('.css-w90b0q')];
+    if (orderBoxes.length === 0) {
+      orderBoxes = [...document.querySelectorAll('div')].filter(d => {
+        const t = d.textContent || '';
+        return /주문번호/.test(t)
+          && /\d{4}[.\-/]\s*\d{1,2}[.\-/]\s*\d{1,2}/.test(t)
+          && d.querySelector('a[href*="/goods/"]')
+          && d.querySelectorAll('div').length < 200; // 너무 큰 컨테이너 제외
+      });
+    }
+
+    for (const box of orderBoxes) {
+      // 주문일자
+      let dateRaw = box.querySelector('.css-1hlre7y')?.textContent.trim() || '';
+      if (!dateRaw) {
+        const dm = (box.textContent || '').match(/(\d{4})[.\-/]\s*(\d{1,2})[.\-/]\s*(\d{1,2})/);
+        if (dm) dateRaw = `${dm[1]}.${dm[2]}.${dm[3]}`;
+      }
+      const dM = dateRaw.match(/(\d{4})[.\-/년]\s*(\d{1,2})[.\-/월]\s*(\d{1,2})/);
+      const date = dM
+        ? `${dM[1]}-${dM[2].padStart(2, '0')}-${dM[3].padStart(2, '0')}`
+        : new Date().toISOString().slice(0, 10);
+
+      // 주문번호
+      let orderId = box.querySelector('.css-2kiak6')?.textContent.replace(/[^\d]/g, '') || '';
+      if (!orderId) {
+        const idm = (box.textContent || '').match(/주문번호[\s:：]*([0-9-]{6,})/);
+        if (idm) orderId = idm[1].replace(/-/g, '');
+      }
+      if (!orderId) {
+        orderId = 'kurly_' + date.replace(/-/g, '') + '_' + Math.random().toString(36).slice(2, 6);
+      }
+
+      // 반품/취소 그룹의 상품 컨테이너 식별
+      // .css-1i89szw 의 다음 형제 컨테이너 또는 같은 부모 안의 후속 상품 영역을 cancelled 로 마킹
+      const cancelledLinks = new Set();
+      const statusEls = [...box.querySelectorAll('.css-1i89szw')];
+      for (const se of statusEls) {
+        if (!/반품|취소|환불|교환/.test(se.textContent)) continue;
+        // 가장 가까운 상위에서 형제 또는 같은 그룹의 모든 a[/goods/] 마킹
+        // 보수적: se의 부모, 그 다음 형제 영역 모두에서 goods 링크
+        let scope = se.parentElement;
+        let collected = false;
+        for (let i = 0; i < 5 && scope; i++) {
+          const links = scope.querySelectorAll('a[href*="/goods/"]');
+          if (links.length > 0) {
+            links.forEach(l => cancelledLinks.add(l));
+            collected = true;
+            break;
+          }
+          scope = scope.parentElement;
+        }
+        if (!collected) {
+          // se 다음 형제들에서 goods 링크 찾기
+          let sib = se.nextElementSibling;
+          while (sib) {
+            sib.querySelectorAll?.('a[href*="/goods/"]').forEach(l => cancelledLinks.add(l));
+            sib = sib.nextElementSibling;
+          }
+        }
+      }
+
+      // 상품 — 안정적: a[href*="/goods/"]
+      // 같은 href에 a가 2개 이상(이미지 a + 상품명 a) 있을 수 있어, 가장 긴 이름 가진 a만 선택
+      const linkMap = new Map();
+      for (const a of box.querySelectorAll('a[href*="/goods/"]')) {
+        const href = a.getAttribute('href') || '';
+        if (!href) continue;
+        const nameEl = a.querySelector('.css-1j39vo8 span') || a.querySelector('span') || a;
+        const cand = (nameEl.textContent || '').trim();
+        const ex = linkMap.get(href);
+        if (!ex || cand.length > ex.name.length) linkMap.set(href, { a, name: cand });
+      }
+      const productLinks = [...linkMap.values()].map(v => v.a);
+
+      for (const a of productLinks) {
+        // 상품명: a 안의 span 또는 .css-1j39vo8 span
+        const nameEl = a.querySelector('.css-1j39vo8 span') || a.querySelector('span') || a;
+        const name = nameEl.textContent.trim();
+        if (!name || name.length < 2) continue;
+
+        const href = a.getAttribute('href') || '';
+        const url = href.startsWith('/') ? 'https://www.kurly.com' + href : href;
+
+        // 가격 — a 부모에서 a 외부의 .css-1j39vo8 (또는 "n,nnn원" 텍스트 매칭)
+        const productCard = a.closest('div') || a.parentElement;
+        let price = 0;
+
+        // 1차: .css-1j39vo8 중 a 안에 없는 것 (가격 element)
+        let scope = productCard;
+        for (let i = 0; i < 4 && scope && !price; i++) {
+          const cands = [...scope.querySelectorAll('.css-1j39vo8')]
+            .filter(el => !a.contains(el) && /[\d,]+\s*원/.test(el.textContent));
+          if (cands.length > 0) {
+            const m = cands[0].textContent.match(/([\d,]+)\s*원/);
+            if (m) price = parseInt(m[1].replace(/,/g, ''));
+            break;
+          }
+          scope = scope.parentElement;
+        }
+        // 폴백: 부모 단위로 "n,nnn원" 첫 매칭 (a 외부)
+        if (!price) {
+          let s = productCard;
+          for (let i = 0; i < 4 && s && !price; i++) {
+            const ps = [...s.querySelectorAll('p')].filter(p => !a.contains(p));
+            for (const p of ps) {
+              const m = p.textContent.match(/^\s*([\d,]+)\s*원\s*$/);
+              if (m) { price = parseInt(m[1].replace(/,/g, '')); break; }
+            }
+            s = s.parentElement;
+          }
+        }
+        if (!price) continue;
+
+        // 수량 — 1차: .css-b2ch1k (a 안의 상품명 element 제외)
+        // 폴백: 카드 내에서 단독으로 "n개"만 있는 element (상품명/옵션 텍스트 제외)
+        // ※ 상품명 안의 "3개입" 같은 텍스트가 잡히지 않도록 ^...$ 앵커 + a.contains() 제외 필수
+        let qty = 1;
+        let qScope = productCard;
+        for (let i = 0; i < 4 && qScope; i++) {
+          const qEls = [...qScope.querySelectorAll('.css-b2ch1k')]
+            .filter(el => !a.contains(el));
+          const qEl = qEls.find(el => /^\s*\d+\s*개\s*$/.test(el.textContent));
+          if (qEl) {
+            const m = qEl.textContent.match(/(\d+)/);
+            if (m) { qty = parseInt(m[1]); break; }
+          }
+          qScope = qScope.parentElement;
+        }
+        if (qty === 1) {
+          // 폴백: a 외부의 단독 "n개" element만 (상품명 텍스트 미포함)
+          let s = productCard;
+          for (let i = 0; i < 4 && s && qty === 1; i++) {
+            const cands = [...s.querySelectorAll('p,span,div')]
+              .filter(el => !a.contains(el));
+            for (const el of cands) {
+              const t = (el.textContent || '').trim();
+              if (/^\d+\s*개$/.test(t)) {
+                const m = t.match(/(\d+)/);
+                if (m) { qty = parseInt(m[1]); break; }
+              }
+            }
+            s = s.parentElement;
+          }
+        }
+
+        // 단가 × 수량 → 합계
+        const totalPrice = price * qty;
+        const cancelled = cancelledLinks.has(a);
+
+        const item = {
+          store: 'kurly',
+          name,
+          price: totalPrice,
+          date,
+          orderId,
+          url,
+          category: cancelled ? '취소/반품' : getCategory(name),
+          collectedAt: new Date().toISOString()
+        };
+
+        const key = item.orderId + '|' + item.name + '|' + item.price;
+        if (!result.some(r => r.orderId + '|' + r.name + '|' + r.price === key)) {
+          result.push(item);
+        }
+      }
+    }
+
+    return result;
+  }
+
   function getCategory(name) {
     return typeof classifyItem === 'function' ? classifyItem(name) : '기타';
   }
@@ -1157,7 +1492,7 @@ function renderStats() {
 }
 
 function renderCounts() {
-  ['coupang', 'naver', '11st', 'aliexpress'].forEach(s => {
+  ['coupang', 'naver', '11st', 'aliexpress', 'kurly'].forEach(s => {
     const el = q('#cnt-' + s);
     if (el) el.textContent = items.filter(i => i.store === s).length + '건';
   });
@@ -1166,7 +1501,7 @@ function renderCounts() {
 function renderList() {
   const list = q('#itemList');
   const f = filtered();
-  const BADGE = { coupang: '쿠', naver: 'N', '11st': '11', aliexpress: 'Ali' };
+  const BADGE = { coupang: '쿠', naver: 'N', '11st': '11', aliexpress: 'Ali', kurly: '컬' };
   const sq = filters.search;
 
   if (!f.length) {
@@ -1226,6 +1561,7 @@ function renderList() {
       if (order.store === 'naver') return order.items[0]?.url || '';
       if (order.store === '11st') return `https://m.11st.co.kr/MW/MyPage/V1/orderDetailV1.tmall?ordNo=${id}`;
       if (order.store === 'aliexpress') return `https://www.aliexpress.com/p/order/detail.html?orderId=${id}`;
+      if (order.store === 'kurly') return order.items[0]?.url || 'https://www.kurly.com/mypage/order';
       return order.items[0]?.url || '';
     })();
     const detailLink = orderDetailUrl
@@ -1488,7 +1824,7 @@ function clearAll() {
 }
 
 function clearStore(store) {
-  const NAMES = { coupang: '쿠팡', naver: '네이버페이', '11st': '11번가', aliexpress: '알리익스프레스' };
+  const NAMES = { coupang: '쿠팡', naver: '네이버페이', '11st': '11번가', aliexpress: '알리익스프레스', kurly: '컬리' };
   const count = items.filter(i => i.store === store).length;
   if (!count) { toast('삭제할 데이터가 없어요'); return; }
   if (!confirm(`${NAMES[store] || store} 데이터 ${count}건을 삭제할까요?`)) return;
