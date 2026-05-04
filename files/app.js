@@ -564,89 +564,135 @@ async function collectAllKurly(tab) {
     if (ready) { layerReady = true; break; }
   }
 
-  // 3년 옵션 클릭 — 레이어 범위로 좁힌 후 여러 폴백
+  // 3년 옵션 클릭 — 레이어 범위로 좁힌 후 button 우선 탐색
   showProgress('기간 선택 중...', 9, layerReady ? '3년 옵션 선택' : '레이어 미발견 (폴백)');
   await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     func: () => {
       const layer = document.querySelector('.css-1uqecto') || document;
 
-      // input/label 케이스 처리 헬퍼
-      const safeClick = (el) => {
+      // React 호환 클릭: pointerdown → mousedown → pointerup → mouseup → click 시퀀스
+      const reactClick = (el) => {
         if (!el) return false;
-        // <input type="radio|checkbox">이면 연결된 label 우선
+        // input이면 연결된 label로 위임
         if (el.tagName === 'INPUT') {
           const label = el.id ? document.querySelector(`label[for="${el.id}"]`) : el.closest('label');
-          if (label) { label.click(); return true; }
-          el.click(); return true;
+          if (label) el = label;
         }
-        // <label>이면 그냥 클릭 (input toggle)
-        el.click();
+        const opts = { bubbles: true, cancelable: true, view: window, button: 0 };
+        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(type => {
+          try {
+            const ev = type.startsWith('pointer')
+              ? new PointerEvent(type, opts)
+              : new MouseEvent(type, opts);
+            el.dispatchEvent(ev);
+          } catch { try { el.click(); } catch {} }
+        });
         return true;
       };
 
-      // 1차: 레이어 내 .css-1tkkqko 중 텍스트가 "3년"인 것
-      let opt = [...layer.querySelectorAll('.css-1tkkqko')]
-        .find(el => /3년/.test(el.textContent) && el.offsetParent !== null);
+      // 1차: 레이어 내 <button> 중 textContent === "3년"
+      let opt = [...layer.querySelectorAll('button')]
+        .find(b => b.textContent.trim() === '3년' && b.offsetParent !== null);
 
-      // 폴백 1: 레이어 내 단독 "3년" 텍스트 element (label 포함)
+      // 폴백 1: 다른 인터랙티브 element 중 "3년" 단독 텍스트
       if (!opt) {
-        opt = [...layer.querySelectorAll('label,button,li,div,a,span')]
+        opt = [...layer.querySelectorAll('label,a,li,span')]
           .find(el => el.textContent.trim() === '3년' && el.offsetParent !== null);
       }
 
       // 폴백 2: 레이어 내 textContent에 "3년" 포함 + 다른 기간 텍스트 없는 가장 작은 노드
+      // (단, 이때도 button 우선)
       if (!opt) {
-        const cands = [...layer.querySelectorAll('label,button,li,div,a,span')]
+        const allCands = [...layer.querySelectorAll('button,label,a,li,span,div')]
           .filter(el => {
             const t = (el.textContent || '').trim();
             if (!/3년/.test(t)) return false;
-            // 다른 기간 옵션 텍스트가 같이 있으면 너무 큰 컨테이너
             if (/(\d+개월|6개월|1년|전체|기간\s*선택)/.test(t)) return false;
             return el.offsetParent !== null;
           });
-        // 가장 텍스트가 짧은 노드 선택 (가장 안쪽 / 단일 옵션일 가능성)
-        cands.sort((a, b) => a.textContent.length - b.textContent.length);
-        opt = cands[0];
+        // button 우선
+        const btns = allCands.filter(el => el.tagName === 'BUTTON');
+        if (btns.length > 0) {
+          btns.sort((a, b) => a.textContent.length - b.textContent.length);
+          opt = btns[0];
+        } else {
+          allCands.sort((a, b) => a.textContent.length - b.textContent.length);
+          opt = allCands[0];
+        }
       }
 
-      if (opt) safeClick(opt);
+      if (opt) reactClick(opt);
     }
   });
-  await new Promise(r => setTimeout(r, 1500));
 
-  // 3. 무한 스크롤 — 카드 수가 N회 연속 동일하면 종료
-  let lastCount = 0, stable = 0, scrollCount = 0;
-  while (true) {
-    const [{ result: count }] = await chrome.scripting.executeScript({
+  // 클릭 후 레이어가 닫히는지 확인 (성공 판정)
+  for (let i = 0; i < 10; i++) {
+    await new Promise(r => setTimeout(r, 200));
+    const [{ result: stillOpen }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: () => {
-        // 1차: 주문 박스 / 폴백: goods 링크 수
-        const boxes = document.querySelectorAll('.css-w90b0q').length;
-        if (boxes > 0) return boxes;
-        return document.querySelectorAll('a[href*="/goods/"]').length;
+        const layer = document.querySelector('.css-1uqecto');
+        return !!(layer && layer.offsetParent !== null);
       }
     });
+    if (!stillOpen) break;
+  }
+  await new Promise(r => setTimeout(r, 1000));
 
-    if (count === lastCount) {
-      stable++;
-      if (stable >= 3) break;
-    } else {
-      stable = 0;
-      lastCount = count;
-    }
-
-    await chrome.scripting.executeScript({
+  // 3. 무한 스크롤 — 변화 감지 기반 (반응형)
+  // 스크롤 후 scrollHeight/카드 수가 변할 때까지 polling, 변화 없음 5회 연속 → 종료
+  let lastCount = 0, lastHeight = 0, noChangeStreak = 0, scrollCount = 0;
+  while (true) {
+    // 현재 상태 측정 + 마지막 박스로 scrollIntoView (sticky/lazy 대응)
+    const [{ result: before }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      func: () => window.scrollTo(0, document.body.scrollHeight)
+      func: () => {
+        const boxes = document.querySelectorAll('.css-w90b0q');
+        const count = boxes.length || document.querySelectorAll('a[href*="/goods/"]').length;
+        // 마지막 박스를 뷰에 진입시킨 뒤 페이지 끝으로 스크롤 (lazy 로딩 트리거)
+        if (boxes.length > 0) {
+          try { boxes[boxes.length - 1].scrollIntoView({ block: 'end' }); } catch {}
+        }
+        window.scrollTo(0, document.body.scrollHeight);
+        return { count, height: document.body.scrollHeight };
+      }
     });
 
     scrollCount++;
-    showProgress(`스크롤 ${scrollCount}회`, Math.min(20 + scrollCount * 2, 90), `${count}개 로드됨`);
-    btn.textContent = `⏳ 스크롤 ${scrollCount}회 (${count}건)`;
+    showProgress(`스크롤 ${scrollCount}회`, Math.min(20 + scrollCount * 2, 90), `${before.count}개 로드됨`);
+    btn.textContent = `⏳ 스크롤 ${scrollCount}회 (${before.count}건)`;
 
-    await new Promise(r => setTimeout(r, 1200));
-    if (scrollCount > 200) break;
+    // 변화 감지: 200ms 간격 × 최대 30회 (= 6초)까지 polling
+    let changed = false;
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 200));
+      const [{ result: cur }] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => ({
+          count: document.querySelectorAll('.css-w90b0q').length
+            || document.querySelectorAll('a[href*="/goods/"]').length,
+          height: document.body.scrollHeight
+        })
+      });
+      if (cur.count > before.count || cur.height > before.height) {
+        changed = true;
+        lastCount = cur.count;
+        lastHeight = cur.height;
+        break;
+      }
+    }
+
+    if (changed) {
+      noChangeStreak = 0;
+    } else {
+      noChangeStreak++;
+      if (noChangeStreak >= 5) break; // 변화 없음 5회 연속 → 끝
+      // 잠시 더 기다린 뒤 재시도 (네트워크 지연 케이스)
+      await new Promise(r => setTimeout(r, 800));
+    }
+
+    if (scrollCount > 300) break; // 안전장치
   }
 
   // 4. 펼치기 + 수집기 주입
