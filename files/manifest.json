@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "CartLog",
-  "version": "3.0.1",
-  "description": "쿠팡, 네이버쇼핑, 네이버페이, 11번가, 알리익스프레스, 컬리 구매 내역을 수집하고 구글 시트에 저장합니다.",
+  "version": "3.1.0",
+  "description": "쿠팡, 네이버쇼핑, 네이버페이, 11번가, 알리익스프레스, 컬리, 지마켓 구매 내역을 수집하고 구글 시트에 저장합니다.",
   "permissions": [
     "activeTab",
     "tabs",
@@ -21,6 +21,8 @@
     "https://orders.pay.naver.com/*",
     "https://*.aliexpress.com/*",
     "https://*.kurly.com/*",
+    "https://my.gmarket.co.kr/*",
+    "https://*.gmarket.co.kr/*",
     "https://api.frankfurter.app/*"
   ],
   "background": {
