@@ -41,7 +41,8 @@ const SHOP_PATTERNS = [
   'aliexpress.com/p/order',
   'kurly.com/mypage/order',
   'my.gmarket.co.kr/ko/pc/list',
-  '11st.co.kr', 'coupang.com', 'naver.com', 'aliexpress.com', 'kurly.com', 'gmarket.co.kr'
+  'temu.com/kr/bgt_orders', 'temu.com/bgt_orders',
+  '11st.co.kr', 'coupang.com', 'naver.com', 'aliexpress.com', 'kurly.com', 'gmarket.co.kr', 'temu.com'
 ];
 
 async function findShopTab() {
@@ -307,18 +308,21 @@ async function collectAuto() {
   const isAliexpress = tab.url.includes('aliexpress.com');
   const isKurly = tab.url.includes('kurly.com');
   const isGmarket = tab.url.includes('gmarket.co.kr');
-  if (!is11st && !isNaver && !isCoupang && !isAliexpress && !isKurly && !isGmarket) { toast('⚠️ 현재 전체 자동 수집은 11번가/네이버페이/쿠팡/알리익스프레스/컬리/지마켓만 지원해요'); return; }
-  const store = is11st ? '11st' : isNaver ? 'naver' : isCoupang ? 'coupang' : isAliexpress ? 'aliexpress' : isKurly ? 'kurly' : 'gmarket';
+  const isTemu = tab.url.includes('temu.com');
+  if (!is11st && !isNaver && !isCoupang && !isAliexpress && !isKurly && !isGmarket && !isTemu) { toast('⚠️ 현재 전체 자동 수집은 11번가/네이버페이/쿠팡/알리익스프레스/컬리/지마켓/테무만 지원해요'); return; }
+  const store = is11st ? '11st' : isNaver ? 'naver' : isCoupang ? 'coupang' : isAliexpress ? 'aliexpress' : isKurly ? 'kurly' : isTemu ? 'temu' : 'gmarket';
   const btn = q('#btnCollectAuto');
   btn.disabled = true;
   try {
     if (store === 'aliexpress') await collectAllPagesAli(tab);
     else if (store === 'kurly') await collectAllKurly(tab);
     else if (store === 'gmarket') await collectAllGmarket(tab);
+    else if (store === 'temu') await collectAllTemu(tab);
     else if (tab.url.includes('orders.pay.naver.com')) await collectAllYears(tab, 'naver');
     else if (tab.url.includes('pay.naver.com')) await collectNaverPayAll(tab);
     else await collectAllYears(tab, store);
   }
+  catch (e) { console.error('[collectAuto]', e); hideProgress(); toast('❌ 오류: ' + e.message); }
   finally { btn.disabled = false; btn.textContent = '⟳ 전체 기간 자동 수집'; }
 }
 
@@ -370,7 +374,7 @@ function renderStats() {
 }
 
 function renderCounts() {
-  ['coupang', 'naver', '11st', 'aliexpress', 'kurly', 'gmarket'].forEach(s => {
+  ['coupang', 'naver', '11st', 'aliexpress', 'kurly', 'gmarket', 'temu'].forEach(s => {
     const el = q('#cnt-' + s);
     if (el) el.textContent = items.filter(i => i.store === s).length + '건';
   });
@@ -379,7 +383,7 @@ function renderCounts() {
 function renderList() {
   const list = q('#itemList');
   const f = filtered();
-  const BADGE = { coupang: '쿠', naver: 'N', '11st': '11', aliexpress: 'Ali', kurly: '컬', gmarket: '지' };
+  const BADGE = { coupang: '쿠', naver: 'N', '11st': '11', aliexpress: 'Ali', kurly: '컬', gmarket: '지', temu: '테' };
   const sq = filters.search;
 
   if (!f.length) {
@@ -441,6 +445,7 @@ function renderList() {
       if (order.store === 'aliexpress') return `https://www.aliexpress.com/p/order/detail.html?orderId=${id}`;
       if (order.store === 'kurly') return order.items[0]?.url || 'https://www.kurly.com/mypage/order';
       if (order.store === 'gmarket') return order.items[0]?.url || 'https://my.gmarket.co.kr/ko/pc/list/all';
+      if (order.store === 'temu') return `https://www.temu.com/bgt_order_detail.html?parent_order_sn=${id}`;
       return order.items[0]?.url || '';
     })();
     const detailLink = orderDetailUrl
@@ -703,7 +708,7 @@ function clearAll() {
 }
 
 function clearStore(store) {
-  const NAMES = { coupang: '쿠팡', naver: '네이버페이', '11st': '11번가', aliexpress: '알리익스프레스', kurly: '컬리', gmarket: '지마켓' };
+  const NAMES = { coupang: '쿠팡', naver: '네이버페이', '11st': '11번가', aliexpress: '알리익스프레스', kurly: '컬리', gmarket: '지마켓', temu: '테무' };
   const count = items.filter(i => i.store === store).length;
   if (!count) { toast('삭제할 데이터가 없어요'); return; }
   if (!confirm(`${NAMES[store] || store} 데이터 ${count}건을 삭제할까요?`)) return;

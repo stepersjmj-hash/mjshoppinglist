@@ -11,7 +11,7 @@
   --fg:#1a1a2e;--fg2:#44445a;--fg3:#8888a4;
   --a:#6c5ce7;--a2:#5a4bd1;--a3:rgba(108,92,231,0.10);
   --ok:#059669;--err:#dc2626;
-  --cp:#346aff;--nv:#29cf73;--st:#ff0038;--ali:#ff640e;--kly:#5f0080;--gmkt:#0abb26;
+  --cp:#346aff;--nv:#29cf73;--st:#ff0038;--ali:#ff640e;--kly:#5f0080;--gmkt:#0abb26;--temu:#fb7701;
 }
 @media(prefers-color-scheme:dark){
   :root{
@@ -20,7 +20,7 @@
     --fg:#e2e2ec;--fg2:#a0a0b4;--fg3:#606074;
     --a:#7c6fef;--a2:#a89df5;--a3:rgba(124,111,239,0.12);
     --ok:#34d399;--err:#f87171;
-    --cp:#346aff;--nv:#29cf73;--st:#ff0038;--ali:#ff640e;--kly:#b066d6;--gmkt:#0abb26;
+    --cp:#346aff;--nv:#29cf73;--st:#ff0038;--ali:#ff640e;--kly:#b066d6;--gmkt:#0abb26;--temu:#fb7701;
   }
   .loader{border-color:rgba(0,0,0,.15);border-top-color:var(--a)}
   .guide-overlay{background:rgba(0,0,0,.5)}
@@ -72,6 +72,7 @@ header{display:flex;align-items:center;justify-content:space-between}
 .chip[data-val="aliexpress"].on{background:var(--ali);border-color:var(--ali)}
 .chip[data-val="kurly"].on{background:var(--kly);border-color:var(--kly)}
 .chip[data-val="gmarket"].on{background:var(--gmkt);border-color:var(--gmkt)}
+.chip[data-val="temu"].on{background:var(--temu);border-color:var(--temu)}
 .f-input{background:var(--bg4);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:11px;padding:4px 8px}
 .f-input:focus{outline:none;border-color:var(--a)}
 .f-input::placeholder{color:var(--fg3)}
@@ -92,6 +93,7 @@ header{display:flex;align-items:center;justify-content:space-between}
 .badge.aliexpress{background:color-mix(in srgb,var(--ali) 15%,transparent);color:var(--ali)}
 .badge.kurly{background:color-mix(in srgb,var(--kly) 15%,transparent);color:var(--kly)}
 .badge.gmarket{background:color-mix(in srgb,var(--gmkt) 15%,transparent);color:var(--gmkt)}
+.badge.temu{background:color-mix(in srgb,var(--temu) 15%,transparent);color:var(--temu)}
 .item-info{flex:1;min-width:0}
 .item-name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .item-meta{display:flex;align-items:center;gap:6px;margin-top:3px}
@@ -303,6 +305,7 @@ header{display:flex;align-items:center;justify-content:space-between}
             <div class="chip" data-filter="store" data-val="aliexpress">알리</div>
             <div class="chip" data-filter="store" data-val="kurly">컬리</div>
             <div class="chip" data-filter="store" data-val="gmarket">지마켓</div>
+            <div class="chip" data-filter="store" data-val="temu">테무</div>
           </div>
         </div>
         <div class="filter-row">
@@ -447,6 +450,12 @@ header{display:flex;align-items:center;justify-content:space-between}
               <div class="site-info"><div class="site-name">지마켓</div><div class="site-sub">마이쇼핑 > 주문목록</div></div>
               <div class="site-cnt" id="cnt-gmarket">0건</div>
               <button class="site-clear" data-clear-store="gmarket" title="지마켓 데이터 삭제">×</button>
+            </div>
+            <div class="site-row">
+              <div class="dot-sm" style="background:var(--temu)"></div>
+              <div class="site-info"><div class="site-name">테무</div><div class="site-sub">계정 > 주문 내역</div></div>
+              <div class="site-cnt" id="cnt-temu">0건</div>
+              <button class="site-clear" data-clear-store="temu" title="테무 데이터 삭제">×</button>
             </div>
           </div>
           <div class="guide">
@@ -730,6 +739,7 @@ function doGet(e) {
 <script src="drivers/naver.js"></script>
 <script src="drivers/kurly.js"></script>
 <script src="drivers/gmarket.js"></script>
+<script src="drivers/temu.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

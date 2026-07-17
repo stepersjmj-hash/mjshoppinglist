@@ -2,7 +2,20 @@
   "permissions": {
     "allow": [
       "Bash(node:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "mcp__claude-in-chrome__navigate",
+      "mcp__claude-in-chrome__javascript_tool",
+      "Bash(node --check \"C:\\\\Users\\\\stepe\\\\Desktop\\\\mj\\\\mjshoppinglist\\\\files\\\\collectors\\\\aliexpress.js\")",
+      "Bash(node --check files/collectors/temu.js)",
+      "Bash(node --check files/drivers/temu.js)",
+      "Bash(node --check files/collectors/common.js)",
+      "Bash(node --check files/drivers/common.js)",
+      "Bash(node --check files/app.js)",
+      "Bash(cp \"C:\\\\Users\\\\stepe\\\\Desktop\\\\mj\\\\mjshoppinglist\\\\files\\\\categories.js\" .)",
+      "Bash(cp \"C:\\\\Users\\\\stepe\\\\Desktop\\\\mj\\\\mjshoppinglist\\\\files\\\\collectors\\\\common.js\" ./collectors_common.js)",
+      "Bash(cp \"C:\\\\Users\\\\stepe\\\\Desktop\\\\mj\\\\mjshoppinglist\\\\files\\\\collectors\\\\temu.js\" ./collectors_temu.js)",
+      "Bash(npx -y http-server -p 8917 -s)",
+      "mcp__claude-in-chrome__tabs_context_mcp"
     ]
   }
 }

@@ -34,27 +34,32 @@
       }
       if (!price) continue;
 
-      // 주문 컨테이너
+      // 주문 컨테이너: 상세보기 링크(data-pl)를 품은 첫 조상 = 주문 1건 단위 (.order-item)
       let orderEl = priceEl.parentElement;
       for (let i = 0; i < 20; i++) {
         if (!orderEl) break;
-        if (orderEl.textContent.includes('주문 ID:')) break;
+        if (orderEl.querySelector('a[data-pl="order_item_header_detail"]')
+          || orderEl.textContent.includes('주문 ID:')) break;
         orderEl = orderEl.parentElement;
       }
       const ctText = (orderEl?.textContent || '').replace(/\s+/g, ' ');
-      const orderIdM = ctText.match(/주문\s*ID[:\s]*(\d{10,})/);
+      // 주문번호: 상세보기 링크의 orderId 파라미터 우선 (문구 변경에 안전), 텍스트는 폴백
+      const detailA = orderEl?.querySelector('a[data-pl="order_item_header_detail"]');
+      const hrefIdM = (detailA?.href || '').match(/orderId=(\d{10,})/);
+      const orderIdM = hrefIdM || ctText.match(/주문\s*(?:ID|번호)\s*[:：\s]*(\d{10,})/);
       const orderId = orderIdM ? orderIdM[1]
         : 'ali_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-      const korDateM = ctText.match(/주문일[:\s]*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일/);
+      const korDateM = ctText.match(/주문일자?\s*[:：\s]*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일/);
       const isoDateM = ctText.match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
       const date = korDateM
         ? `${korDateM[1]}-${korDateM[2].padStart(2, '0')}-${korDateM[3].padStart(2, '0')}`
         : isoDateM
           ? `${isoDateM[1]}-${isoDateM[2].padStart(2, '0')}-${isoDateM[3].padStart(2, '0')}`
           : new Date().toISOString().slice(0, 10);
-      const cancelled = /취소|cancel|refund|환불/i.test(
-        orderEl?.querySelector('[class*="cancel"],[class*="Cancel"]')?.textContent || ''
-      );
+      // 취소된 주문은 수집 제외 — 헤더 상태 텍스트(data-pl) 기준, 기존 class 방식은 폴백
+      const statusText = orderEl?.querySelector('[data-pl="order_item_header_status"]')?.textContent
+        || orderEl?.querySelector('[class*="cancel"],[class*="Cancel"]')?.textContent || '';
+      if (/취소|cancel|refund|환불/i.test(statusText)) continue;
 
       // 상품 링크 + 이름 탐색
       let link = null, name = '', url = '';
@@ -87,15 +92,15 @@
         if (!result.some(r => r.orderId + '|' + r.name + '|' + r.price === key)) {
           result.push({
             store: 'aliexpress', name, price, currency, date, orderId, url,
-            category: cancelled ? '취소/반품' : getCategory(name),
+            category: getCategory(name),
             collectedAt: new Date().toISOString()
           });
         }
       } else {
         // 이름 없음 → 상세 페이지 큐에 추가
-        const detailHref = orderEl?.querySelector('a[data-pl="order_item_header_detail"]')?.href || '';
+        const detailHref = detailA?.href || '';
         if (detailHref) {
-          window.__aliDetailQueue.push({ orderId, price, currency, date, url, cancelled, detailHref });
+          window.__aliDetailQueue.push({ orderId, price, currency, date, url, cancelled: false, detailHref });
         }
       }
     }

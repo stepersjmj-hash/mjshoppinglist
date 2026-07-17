@@ -12,7 +12,8 @@ async function injectCollector(tabId, allPages) {
     'collectors/eleven.js',
     'collectors/aliexpress.js',
     'collectors/kurly.js',
-    'collectors/gmarket.js'
+    'collectors/gmarket.js',
+    'collectors/temu.js'
   ] });
   await chrome.scripting.executeScript({ target: { tabId }, func: (p) => window.__cartlog.run(p), args: [allPages] });
   const count = await pollCollectDone(tabId, 120000);

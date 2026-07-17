@@ -66,6 +66,7 @@
         else if (url.includes('aliexpress.com')) collected = await C.aliexpress();
         else if (url.includes('kurly.com')) collected = await C.kurly();
         else if (url.includes('gmarket.co.kr')) collected = await C.gmarket();
+        else if (url.includes('temu.com')) collected = await C.temu();
       } catch (e) { console.error('[collect error]', e.message); }
       window.__shopCollecting = false;
       if (collected.length > 0) chrome.runtime.sendMessage({ action: 'itemsCollected', items: collected });
